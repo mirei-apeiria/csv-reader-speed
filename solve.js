@@ -58,7 +58,8 @@ export function run(input) {
         j++;
       }
       if (j >= len) {
-        fVal = head + text.slice(segStart, len);
+        const tail = text.slice(segStart, len);
+        fVal = head + tail;
         fAdded = added + (len - segStart);
         fEnded = ENDED_END;
         pos = len;
@@ -66,14 +67,16 @@ export function run(input) {
       }
       const c = text.charCodeAt(j);
       if (c === 44) {
-        fVal = head + text.slice(segStart, j);
+        const tail = text.slice(segStart, j);
+        fVal = head + tail;
         fAdded = added + (j - segStart);
         fEnded = ENDED_COMMA;
         pos = j + 1;
         return;
       }
       if (c === 10) {
-        fVal = head + text.slice(segStart, j);
+        const tail = text.slice(segStart, j);
+        fVal = head + tail;
         fAdded = added + (j - segStart);
         fEnded = ENDED_LINE_BREAK;
         pos = j + 1;
@@ -82,7 +85,8 @@ export function run(input) {
       }
       // c === 13: a CR. Followed by LF it ends the record; on its own it is dropped (stray_cr).
       if (text.charCodeAt(j + 1) === 10) {
-        fVal = head + text.slice(segStart, j);
+        const tail = text.slice(segStart, j);
+        fVal = head + tail;
         fAdded = added + (j - segStart);
         fEnded = ENDED_LINE_BREAK;
         pos = j + 2;
@@ -96,6 +100,40 @@ export function run(input) {
       segStart = pos;
       i = pos;
     }
+  }
+
+  // Appends the quoted segment text[p..q) to `value`, converting each CRLF or lone CR to one LF and
+  // counting every line break it holds. Short segments are scanned a character at a time, which is
+  // cheaper than searching them; long ones are searched and replaced natively.
+  function appendSegment(value, p, q) {
+    if (q - p <= 48) {
+      let breaks = 0;
+      for (let j = p; j < q; j++) {
+        const c = text.charCodeAt(j);
+        if (c === 13) {
+          // A CR is in the segment: take the native path for the whole segment, counting afresh.
+          const seg = text.slice(p, q);
+          const found = seg.match(/\r\n|\r|\n/g);
+          line += found === null ? 0 : found.length;
+          return value + seg.replace(/\r\n|\r/g, '\n');
+        }
+        if (c === 10) breaks += 1;
+      }
+      line += breaks;
+      return value + text.slice(p, q);
+    }
+    const seg = text.slice(p, q);
+    if (seg.indexOf('\r') === -1) {
+      let k = seg.indexOf('\n');
+      while (k !== -1) {
+        line += 1;
+        k = seg.indexOf('\n', k + 1);
+      }
+      return value + seg;
+    }
+    const found = seg.match(/\r\n|\r|\n/g);
+    line += found === null ? 0 : found.length;
+    return value + seg.replace(/\r\n|\r/g, '\n');
   }
 
   // Reads a quoted field whose opening quote is at pos. Sets fVal and fEnded.
@@ -115,22 +153,7 @@ export function run(input) {
         readUnquoted('"');
         return;
       }
-      if (q > p) {
-        const seg = text.slice(p, q);
-        if (seg.indexOf('\r') === -1) {
-          value += seg;
-          let k = seg.indexOf('\n');
-          while (k !== -1) {
-            line += 1;
-            k = seg.indexOf('\n', k + 1);
-          }
-        } else {
-          // CRLF and a lone CR inside quotes are each read as one LF, and each counts one line.
-          value += seg.replace(/\r\n|\r/g, '\n');
-          const breaks = seg.match(/\r\n|\r|\n/g);
-          if (breaks !== null) line += breaks.length;
-        }
-      }
+      if (q > p) value = appendSegment(value, p, q);
       if (text.charCodeAt(q + 1) === 34) {
         // A doubled quote is one quote in the value; the field goes on.
         value += '"';
