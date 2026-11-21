@@ -1,0 +1,1 @@
+Temporary file to enable the About settings dialog on an otherwise empty repository. It will be deleted after the About description, website and topics are set.
